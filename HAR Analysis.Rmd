@@ -1,0 +1,110 @@
+---
+title: "Human Activity Recognition (HAR) Analysis"
+author: "ST Lin"
+date: "2016年5月11日"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+### Introduction
+Using devices such as *Jawbone Up*, *Nike FuelBand*, and *Fitbit* it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, the goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways.
+
+This report analyzes the data and predicts the manner in which they did the exercise. (This is the *classe* variable in the training set.) Three models: decision trees (*rpart*), support vector machines (*svmRadial*)and random forests (*rf*) were built on a training data set of 19,622 observations. The best prediction was then applied to predict the 20 testing cases.
+
+**Note**: The data for this project come from the source: <http://groupware.les.inf.puc-rio.br/har>. They have been very generous in allowing their data to be used for this report.
+
+### Data Pre-processing
+Load training and testing datasets.
+``` {r loadData}
+training <- read.csv("./pml-training.csv")
+testing <- read.csv("./pml-testing.csv")
+```
+Explore training dataset and clean it up, if necessary.
+``` {r explore}
+str(training); dim(testing)
+```
+Training dataset contains 19,622 observations with 160 variables, whereas testing dataset contains the same 160 variables (except the *classe* variable), but only 20 observations. Besides, there are many variables containing NAs (or very little variance). Outcome is in the *classe* variable (5 calsses: A, B, C, D, E).
+
+Load libraries.
+``` {r lib}
+library(lattice); library(ggplot2); library(kernlab); library(rpart); library(randomForest); library(caret); library(rattle); library(e1071) 
+```
+
+Remove zero variance or near zero variance variables from the training and testing datasets.
+``` {r rmZV}
+nsv <- nearZeroVar(training,saveMetrics=TRUE)
+colTrainNZV <- nsv[, 3] == TRUE|nsv[,4] == TRUE # 3rd column is about zero-variance and 4th column about near-zero-variance.
+newTraining <- training[, !colTrainNZV]
+newTesting <- testing[, !colTrainNZV]
+```
+
+There are many variables with a lot of NAs (In fact, 19216 NAs for each of such variables). Remove variables whose number of NAs is greater than 70% of the observations.
+``` {r rmNA}
+nRowTrain <- nrow(newTraining)
+ncolTrain <- ncol(newTraining)
+logical <- NULL
+for (i in 1: ncolTrain) {logical <- c(logical, (sum(is.na(newTraining[, i]))/nRowTrain)) >= 0.7}
+newTraining <- newTraining[, !logical]; newTesting <- newTesting[, !logical]
+```
+
+Remove the first 5 columns (e.g. row indices, subject names, time stamps), which has nothing to do with the prediction.
+``` {r rmNonPred}
+newTraining <- newTraining[, -(1:5)]; newTesting <- newTesting[, -(1:5)]
+dim(newTraining); dim(newTesting)
+```
+
+After data pre-processing, 54 vairables are left as candidate predictors.
+
+### Model Building
+
+For cross-validation, split the *newTraining* dataset into training (80%) and validation (20%) sets.
+``` {r val}
+set.seed(124)
+inTrain <- createDataPartition(y=newTraining$classe, p=0.8, list=FALSE)
+cleanValidation <- newTraining[-inTrain,]; cleanTraining <- newTraining[inTrain,] 
+dim(cleanTraining); dim(cleanValidation)
+```
+
+Build different models: 
+
+- Decision Tree (*rpart*)
+``` {r rpart, eval = TRUE}
+set.seed(325)
+treeFit <- train(classe ~ .,method="rpart", data=cleanTraining)
+predTree <- predict(treeFit, cleanValidation)
+```
+
+- Support Vector Machines with Radial kernal (*svmRadial*)
+``` {r svm, eval = TRUE, warning = FALSE}
+svmFit <- train(classe ~ ., method = "svmRadial", data = cleanTraining)
+predSVM <- predict(svmFit, cleanValidation)
+```
+
+- Random Forests (*rf*)
+``` {r rf, eval = TRUE}
+rfFit <- train(classe ~., method="rf", data=cleanTraining)
+predRF <- predict(rfFit, cleanValidation)
+```
+
+Compute the accuracies of the above three models.
+``` {r acc, eval = TRUE}
+confusionMatrix(cleanValidation$classe, predTree)$overall['Accuracy']
+confusionMatrix(cleanValidation$classe, predSVM)$overall['Accuracy']
+confusionMatrix(cleanValidation$classe, predRF)$overall['Accuracy']
+```
+Model accuracies are:
+
+- Decision trees: 0.5946979;
+
+- SVM: 0.9378027;
+
+- Random forests: 0.9987255.
+
+As a result, the random forests model has the highest accuracy on the validation set: 0.9987255. We will apply it to the 20 testing cases.
+``` {r pred20cases, eval = TRUE}
+predTest <- predict(rfFit, newTesting)
+predTest
+```
